@@ -12,10 +12,9 @@ use std::time::Instant;
 use termion::{clear, color};
 
 fn test_it(dif: u8, size: usize, nonce: [u8; 32]) {
-
     let create = Instant::now();
     let rp = ResourceProof::new(size, dif);
-    let ref mut data = rp.create_proof_data(&nonce);
+    let data = &mut rp.create_proof_data(&nonce);
     let proof = rp.create_proof(data);
     let create_time = create.elapsed().as_secs();
     let check = Instant::now();
@@ -31,8 +30,8 @@ fn test_it(dif: u8, size: usize, nonce: [u8; 32]) {
         println!("FAILED TO CONFIRM PROOF & DATA - POSSIBLE VIOLATION");
     }
 
-    println!("Difficulty = {} size = {} create = {} seconds check = {} seconds num of attempts = \
-              {:?}",
+    println!("Difficulty: {:<8}Size: {:<8}Created in {} seconds.  Checked in {} seconds.  Number \
+              of attempts: {:?}",
              dif,
              size,
              create_time,
@@ -63,7 +62,7 @@ fn main() {
         .before_help("Resource proof testing framework")
         .after_help("_____________________________________________________________\nSeveral \
                      proofs may be chained, i.e. a large difficulty and small size or large size \
-                     and small difficulty to check specifically CPU And BW seperately")
+                     and small difficulty to check specifically CPU And BW separately")
         .arg(Arg::with_name("Difficulty")
             .short("d")
             .required(true)
@@ -81,7 +80,7 @@ fn main() {
             .short("i")
             .long("increase")
             .help("Will run continuously, increasing difficulty with every invocation. Note \
-                   this will likley not stop in your lifetime :-)"))
+                   this will likely not stop in your lifetime :-)"))
         .get_matches();
 
     print_red("Running analysis ....");
@@ -96,7 +95,6 @@ fn main() {
 
     if repeat {
         for i in dif.. {
-
             test_it(i, size, nonce);
         }
     } else {

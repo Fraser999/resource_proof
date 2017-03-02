@@ -1,11 +1,11 @@
-// Copyright 2015 MaidSafe.net limited.
+// Copyright 2016 MaidSafe.net limited.
 //
 // This SAFE Network Software is licensed to you under (1) the MaidSafe.net Commercial License,
 // version 1.0 or later, or (2) The General Public License (GPL), version 3, depending on which
 // licence you accepted on initial access to the Software (the "Licences").
 //
 // By contributing code to the SAFE Network Software, or to this project generally, you agree to be
-// bound by the terms of the MaidSafe Contributor Agreement, version 1.0 This, along with the
+// bound by the terms of the MaidSafe Contributor Agreement, version 1.1.  This, along with the
 // Licenses can be found in the root directory of this project at LICENSE, COPYING and CONTRIBUTOR.
 //
 // Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
@@ -17,14 +17,12 @@
 
 //! # Resource proof
 //!
-//! A mechanism to prove resource avaliability of a machine prior to it joining a network. This
+//! A mechanism to prove resource availability of a machine prior to it joining a network. This
 //! crate will provide the creation and confirmation algorithms. It is suggested that network
 //! nodes will require minimum resources to confirm the proof, but joining nodes will have a
-//! significantly higher resource requirementto attempt such a joining proof.
+//! significantly higher resource requirement to attempt such a joining proof.
 //!
-//! [Github repository](https://github.com/dirvine/resource_proof)
-
-
+//! [GitHub repository](https://github.com/dirvine/resource_proof)
 
 #![doc(html_logo_url =
            "https://raw.githubusercontent.com/maidsafe/QA/master/Images/maidsafe_logo.png",
@@ -45,16 +43,9 @@
 #![allow(box_pointers, fat_ptr_transmutes, missing_copy_implementations,
          missing_debug_implementations, variant_size_differences)]
 
-
-#![cfg_attr(feature="clippy", feature(plugin))]
-#![cfg_attr(feature="clippy", plugin(clippy))]
-#![cfg_attr(feature="clippy", deny(clippy))]
-#![cfg_attr(feature="clippy", allow(use_debug))]
-
 #[cfg(test)]
 extern crate rand;
 extern crate tiny_keccak;
-use std::collections::VecDeque;
 use tiny_keccak::Keccak;
 
 /// Holds the prover requirements
@@ -63,7 +54,6 @@ pub struct ResourceProof {
     /// minimum size of proof in bytes
     difficulty: u8,
 }
-
 
 impl ResourceProof {
     /// Rounds will factor how large the message to send is. It also has a slight impact on the
@@ -75,64 +65,52 @@ impl ResourceProof {
         }
     }
 
-    /// Requires the proof datato be passed in.
-    pub fn create_proof(&self, data: &mut VecDeque<u8>) -> u64 {
-        let mut count = 0u64;
-        let ref mut tmp = data.clone();
-        while self.check_hash(&tmp) < self.difficulty {
-            tmp.push_front(0u8);
-            count += 1;
+    /// Requires the proof data to be passed in.
+    pub fn create_proof(&self, data: &[u8]) -> u64 {
+        let mut prefix = vec![];
+        while self.check_hash(&prefix, data) < self.difficulty {
+            prefix.push(0u8);
         }
-        count
+        prefix.len() as u64
     }
 
     /// Create the proof data.
-    pub fn create_proof_data(&self, nonce: &[u8]) -> VecDeque<u8> {
-        nonce.iter()
-            .cloned()
-            .cycle()
-            .take(self.min_size)
-            .collect()
+    pub fn create_proof_data(&self, nonce: &[u8]) -> Vec<u8> {
+        nonce.iter().cloned().cycle().take(self.min_size).collect()
     }
 
     /// validate the data and proof claim (this is the number of zeros to be pushed onto the data)
-    pub fn validate_all(&self, nonce: &[u8], received_data: &VecDeque<u8>, claim: u64) -> bool {
-        let mut data = self.create_proof_data(nonce);
-        if data != *received_data {
+    pub fn validate_all(&self, nonce: &[u8], received_data: &[u8], claim: u64) -> bool {
+        if !self.validate_data(nonce, received_data) {
             return false;
         }
-        for _ in 0..claim {
-            data.push_front(0u8);
-        }
-        self.check_hash(&data) >= self.difficulty
-
+        let prefix = vec![0u8; claim as usize];
+        self.check_hash(&prefix, received_data) >= self.difficulty
     }
 
     /// Validate the data only. Useful to confirm the
-    pub fn validate_data(&self, nonce: &[u8], data: &VecDeque<u8>) -> bool {
-        self.create_proof_data(nonce) == *data
+    pub fn validate_data(&self, nonce: &[u8], data: &[u8]) -> bool {
+        self.create_proof_data(nonce) == data
     }
 
 
     /// Validate the proof claim only.
     pub fn validate_proof(&self, nonce: &[u8], claim: u64) -> bool {
-        let mut data = self.create_proof_data(nonce);
-        for _ in 0..claim {
-            data.push_front(0u8);
-        }
-        self.check_hash(&data) >= self.difficulty
+        let data = self.create_proof_data(nonce);
+        let prefix = vec![0u8; claim as usize];
+        self.check_hash(&prefix, &data) >= self.difficulty
     }
 
-    fn check_hash(&self, data: &VecDeque<u8>) -> u8 {
-        ResourceProof::leading_zeros(&hash(&data.as_slices()))
+    fn check_hash(&self, prefix: &[u8], data: &[u8]) -> u8 {
+        ResourceProof::leading_zeros(&hash(prefix, data))
     }
-
 
     fn leading_zeros(data: &[u8]) -> u8 {
         let mut zeros = 0u8;
-        for (count, i) in data.iter().enumerate() {
-            zeros = i.leading_zeros() as u8 + (count as u8 * 8);
-            if i.leading_zeros() < 8 {
+        for i in data {
+            let leading_zeros = i.leading_zeros();
+            zeros += leading_zeros as u8;
+            if leading_zeros < 8 {
                 break;
             }
         }
@@ -140,11 +118,11 @@ impl ResourceProof {
     }
 }
 
-/// Simple wrapper around tiny-keccak for use with deques
-fn hash(data: &(&[u8], &[u8])) -> [u8; 32] {
+/// Simple wrapper around tiny-keccak which hashes `prefix` followed by `data`.
+fn hash(prefix: &[u8], data: &[u8]) -> [u8; 32] {
     let mut sha3 = Keccak::new_sha3_256();
-    sha3.update(data.0);
-    sha3.update(data.1);
+    sha3.update(prefix);
+    sha3.update(data);
     let mut res = [0u8; 32];
     sha3.finalize(&mut res);
     res
@@ -155,17 +133,16 @@ mod tests {
     use rand;
     use super::*;
 
-
     #[test]
     fn valid_proof() {
         for _ in 0..20 {
             let nonce = [rand::random::<u8>()];
             let rp = ResourceProof::new(1024, 3);
-            let ref mut data = rp.create_proof_data(&nonce);
-            let proof = rp.create_proof(data);
+            let data = rp.create_proof_data(&nonce);
+            let proof = rp.create_proof(&data);
             assert!(rp.validate_proof(&nonce, proof));
-            assert!(rp.validate_data(&nonce, data));
-            assert!(rp.validate_all(&nonce, data, proof));
+            assert!(rp.validate_data(&nonce, &data));
+            assert!(rp.validate_all(&nonce, &data, proof));
         }
     }
 
